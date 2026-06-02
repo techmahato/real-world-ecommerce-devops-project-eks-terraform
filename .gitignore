@@ -1,44 +1,305 @@
-# Local .terraform directories
+# =============================================================================
+#  .gitignore — Real-World E-Commerce DevOps Project on AWS EKS with Terraform
+# =============================================================================
+#  Purpose:
+#    Prevent sensitive, machine-specific, and auto-generated files from being
+#    committed to version control. Each section below explains WHAT is ignored
+#    and WHY — so future contributors understand the rationale and can make
+#    informed decisions before un-ignoring anything.
+#
+#  Rule of thumb:
+#    If a file contains secrets, local state, machine-specific config, or can
+#    be regenerated from source — it does NOT belong in Git.
+# =============================================================================
+ 
+ 
+# -----------------------------------------------------------------------------
+# 1. Terraform — Working Directories & Provider Plugins
+# -----------------------------------------------------------------------------
+# The `.terraform/` directory is created by `terraform init` and contains
+# downloaded provider binaries, modules, and backend configuration. It is
+# machine-specific, can be hundreds of MB in size, and is fully regenerated
+# by re-running `terraform init`. Never commit this.
 .terraform/
-
-# .tfstate files
+.terraform.d/
+ 
+ 
+# -----------------------------------------------------------------------------
+# 2. Terraform — State Files
+# -----------------------------------------------------------------------------
+# State files contain the *real-world mapping* of your infrastructure,
+# including resource IDs, IP addresses, and — critically — any sensitive
+# values (passwords, tokens, private keys) that providers wrote into state.
+# State MUST live in a remote backend (S3 + DynamoDB locking in this project),
+# never in Git. Committing state is one of the most common security incidents
+# in IaC projects.
 *.tfstate
 *.tfstate.*
-
-# Crash log files
+*.tfstate.backup
+terraform.tfstate.backup
+ 
+ 
+# -----------------------------------------------------------------------------
+# 3. Terraform — Crash Logs
+# -----------------------------------------------------------------------------
+# When Terraform panics, it writes a `crash.log` containing stack traces and
+# possibly sensitive runtime data. These are diagnostic artifacts — share
+# them privately with maintainers if needed, but never commit them.
 crash.log
 crash.*.log
-
-# Exclude all .tfvars files, which are likely to contain sensitive data, such as
-# password, private keys, and other secrets. These should not be part of version
-# control as they are data points which are potentially sensitive and subject
-# to change depending on the environment.
+ 
+ 
+# -----------------------------------------------------------------------------
+# 4. Terraform — Variable Files (.tfvars)
+# -----------------------------------------------------------------------------
+# `.tfvars` files typically contain environment-specific values: account IDs,
+# region overrides, instance sizes, and very often SECRETS such as DB
+# passwords, API keys, or private SSH keys. Treat every .tfvars file as
+# sensitive by default. If a particular .tfvars file is genuinely safe to
+# share (e.g. a non-secret example), un-ignore it explicitly with a negation
+# pattern — see `!terraform.tfvars.example` below.
 *.tfvars
 *.tfvars.json
-
-# Ignore override files as they are usually used to override resources locally and so
-# are not checked in
+ 
+# Allow committing example/template tfvars so contributors know the schema.
+!*.tfvars.example
+!*.tfvars.json.example
+ 
+ 
+# -----------------------------------------------------------------------------
+# 5. Terraform — Override Files
+# -----------------------------------------------------------------------------
+# Terraform automatically merges any `override.tf` or `*_override.tf` files
+# into the configuration. They are intended for LOCAL experimentation
+# (e.g., temporarily switching a backend or pinning a provider). Committing
+# them silently changes behaviour for everyone, which is a footgun.
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-
-# Ignore transient lock info files created by terraform apply
+ 
+ 
+# -----------------------------------------------------------------------------
+# 6. Terraform — Lock & Plan Artifacts
+# -----------------------------------------------------------------------------
+# `.terraform.tfstate.lock.info` is a transient file created during
+# `terraform apply` and removed when the operation finishes. It should never
+# be committed.
+#
+# NOTE on `.terraform.lock.hcl` — this file pins provider versions across
+# the team and SHOULD normally be committed. We are ignoring it here only
+# because module authors prefer flexible version resolution; if you are
+# consuming (not authoring) modules, REMOVE the `.terraform.lock.hcl` line.
 .terraform.tfstate.lock.info
-
-# Include override files you do wish to add to version control using negated pattern
-# !example_override.tf
-
-# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
-
-# Ignore CLI configuration files
+.terraform.lock.hcl
+ 
+# Plan output files — may contain the full proposed change set including
+# secrets. Treat them like state files.
+*.tfplan
+*.tfplan.*
+tfplan
+planout
+ 
+ 
+# -----------------------------------------------------------------------------
+# 7. Terraform — CLI Configuration
+# -----------------------------------------------------------------------------
+# These files configure Terraform CLI behaviour (e.g., provider mirrors,
+# credentials helpers). They are user/machine-specific and may contain
+# tokens for private registries.
 .terraformrc
 terraform.rc
-
-# Optional: ignore graph output files generated by `terraform graph`
-# *.dot
-
-# Optional: ignore plan files saved before destroying Terraform configuration
-# Uncomment the line below if you want to ignore planout files.
-# planout
+ 
+ 
+# -----------------------------------------------------------------------------
+# 8. Terraform — Optional Outputs (commented by default)
+# -----------------------------------------------------------------------------
+# Uncomment if your workflow generates these and you don't want them tracked.
+# *.dot          # Output of `terraform graph`
+# planout        # Saved plan files
+ 
+ 
+# -----------------------------------------------------------------------------
+# 9. Cloud Credentials & Secrets
+# -----------------------------------------------------------------------------
+# Anything that looks remotely like a credential, key, or secret. AWS
+# credential leaks via Git are a leading cause of cloud account compromise.
+# Add new patterns aggressively — better to over-ignore than under-ignore.
+*.pem
+*.key
+*.ppk
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.truststore
+ 
+# AWS-specific
+.aws/
+aws-credentials
+credentials
+*.credentials
+ 
+# Generic secret files
+secrets/
+secret.*
+*.secret
+*.secrets
+ 
+ 
+# -----------------------------------------------------------------------------
+# 10. Environment Files
+# -----------------------------------------------------------------------------
+# `.env` files commonly hold connection strings, API keys, and feature flags.
+# They are local by definition. Provide an `.env.example` instead so
+# teammates know which variables to set.
+.env
+.env.*
+*.env
+!.env.example
+ 
+ 
+# -----------------------------------------------------------------------------
+# 11. Kubernetes & Helm — Local Artifacts
+# -----------------------------------------------------------------------------
+# `kubeconfig` files grant cluster access — never commit them.
+# Helm packages are build artifacts produced by `helm package`.
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+ 
+helm-charts/**/charts/
+helm-charts/**/Chart.lock
+*.tgz
+ 
+ 
+# -----------------------------------------------------------------------------
+# 12. Editor & IDE Files
+# -----------------------------------------------------------------------------
+# These are personal preferences. Each developer's editor config is their
+# own; don't impose yours on the team.
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.iml
+*.swp
+*.swo
+*.workspace
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+ 
+ 
+# -----------------------------------------------------------------------------
+# 13. Operating System Junk
+# -----------------------------------------------------------------------------
+# Files that operating systems sprinkle into directories — useless to anyone
+# else and noisy in diffs.
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+ 
+ 
+# -----------------------------------------------------------------------------
+# 14. Logs & Temporary Files
+# -----------------------------------------------------------------------------
+# Logs are runtime output, not source. Temp files are by definition
+# disposable.
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+ 
+ 
+# -----------------------------------------------------------------------------
+# 15. Archives & Binary Artifacts
+# -----------------------------------------------------------------------------
+# Compressed archives and binaries are usually build outputs or credential
+# bundles. If you genuinely need to commit one, do so explicitly with
+# `git add -f`.
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.exe
+*.dll
+*.so
+*.dylib
+ 
+ 
+# -----------------------------------------------------------------------------
+# 16. Data Files
+# -----------------------------------------------------------------------------
+# CSVs, dumps, and exports often contain real customer or production data.
+# Sample/seed data should live in a clearly-named `examples/` folder and
+# be un-ignored explicitly.
+*.csv
+*.tsv
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+!examples/**/*.csv
+ 
+ 
+# -----------------------------------------------------------------------------
+# 17. Python — If You Add Helper Scripts
+# -----------------------------------------------------------------------------
+# Common Python clutter. Safe to remove this section if no Python is used.
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+ 
+ 
+# -----------------------------------------------------------------------------
+# 18. Node — If You Add JS Tooling (e.g., CDK, scripts)
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+ 
+ 
+# -----------------------------------------------------------------------------
+# 19. CI/CD Local Caches
+# -----------------------------------------------------------------------------
+# Local caches from running pipelines on your machine.
+.act/
+.github-actions-cache/
+ 
+ 
+# -----------------------------------------------------------------------------
+# 20. Project-Specific Ignores
+# -----------------------------------------------------------------------------
+# Add anything specific to this repository below this line.
+scratch/
+sandbox/
+*.draft.md
+ 
+ 
+# =============================================================================
+#  End of .gitignore
+#  Reminder: Once a sensitive file is committed, removing it later does NOT
+#  remove it from Git history. If you suspect a secret has been committed,
+#  rotate it immediately and rewrite history with `git filter-repo`.
+# =============================================================================
