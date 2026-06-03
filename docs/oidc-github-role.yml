@@ -1,0 +1,283 @@
+# =============================================================================
+#  oidc-github-role.yml
+#  -----------------------------------------------------------------------------
+#  CloudFormation template that provisions everything needed for GitHub Actions
+#  to authenticate to AWS using OpenID Connect (OIDC) — without storing any
+#  long-lived AWS access keys in GitHub Secrets.
+#
+#  WHAT THIS TEMPLATE CREATES
+#  --------------------------
+#    1. An IAM OIDC Identity Provider that trusts GitHub's token issuer
+#         (https://token.actions.githubusercontent.com)
+#    2. An IAM Role that GitHub Actions workflows are allowed to assume,
+#         with a trust policy scoped to a specific repository (and optionally
+#         a specific branch / environment / tag).
+#
+#  HOW IT IS USED
+#  --------------
+#    • Deploy this stack ONCE per AWS account (the OIDC provider is unique).
+#    • The Role ARN produced in the Outputs is then placed into your GitHub
+#      Actions workflow YAML under the `role-to-assume` field of the
+#      `aws-actions/configure-aws-credentials` action.
+#    • At workflow runtime, GitHub mints a short-lived JWT, AWS validates the
+#      claims against this role's trust policy, and STS hands back temporary
+#      credentials (default 1 hour) — no static secrets are exchanged.
+#
+#  PUBLIC REPOSITORY WARNING
+#  -------------------------
+#    Because this repo is PUBLIC, the SubjectClaimFilters parameter is the
+#    single most important security control in this template. A loose filter
+#    such as `repo:*:*` would let ANY GitHub repository on the internet assume
+#    the role. Always pin the filter to your specific org/repo, and ideally
+#    further to a specific branch or GitHub Environment.
+#
+#  REFERENCE
+#  ---------
+#    Original community template:
+#      https://github.com/CWM-Kolkata/cwm-cloudformation-templates/blob/main/github/oidc-github-role.yml
+# =============================================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Provisions a GitHub Actions OIDC Identity Provider and an assumable IAM Role
+  for secure, key-less authentication from GitHub Actions to AWS. Designed for
+  use with public repositories — credentials are never stored in GitHub.
+
+
+# -----------------------------------------------------------------------------
+#  PARAMETERS
+#  ---------------------------------------------------------------------------
+#  These are the inputs you provide when launching the stack in the
+#  CloudFormation console (or via `aws cloudformation deploy`).
+# -----------------------------------------------------------------------------
+Parameters:
+
+  # --- AudienceList -----------------------------------------------------------
+  # The "aud" (audience) claim that AWS expects to find inside the OIDC token
+  # GitHub presents. For AWS STS federation, this MUST be `sts.amazonaws.com`.
+  # Leave the default unless you have a custom audience requirement.
+  AudienceList:
+    Type: CommaDelimitedList
+    Default: "sts.amazonaws.com"
+    Description: >
+      The audience value(s) the OIDC provider will accept. AWS requires
+      `sts.amazonaws.com` for web-identity federation.
+
+  # --- GithubActionsThumbprints ----------------------------------------------
+  # SHA-1 thumbprint(s) of GitHub's TLS certificate chain.
+  #
+  # IMPORTANT CONTEXT:
+  #   • This value is NOT a secret and is NOT account-specific. It is the
+  #     public fingerprint of GitHub's TLS cert and is the same for every
+  #     AWS customer in the world.
+  #   • For the GitHub OIDC issuer (`token.actions.githubusercontent.com`),
+  #     modern AWS regions auto-manage and validate thumbprints internally.
+  #     The field is still REQUIRED at stack-creation time, but in practice
+  #     AWS no longer relies on it for trust decisions on this specific IdP.
+  #   • You CANNOT pick an arbitrary value here — the thumbprint must match
+  #     GitHub's actual certificate. If GitHub rotates its cert, the
+  #     thumbprint changes; listing multiple known thumbprints below ensures
+  #     this stack keeps working across rotations without redeployment.
+  #
+  # Historical / currently-valid GitHub OIDC thumbprints:
+  #   6938fd4d98bab03faadb97b34396831e3780aea1   (original, most documented)
+  #   1c58a3a8518e8759bf075b76b750d4f2df264fcd   (rotation #1)
+  #   f879abce0008e4eb126e0097e46620f5aaae26ad   (rotation #2)
+  #
+  # To verify the current live thumbprint yourself:
+  #   openssl s_client -servername token.actions.githubusercontent.com \
+  #     -showcerts -connect token.actions.githubusercontent.com:443 \
+  #     < /dev/null 2>/dev/null \
+  #     | openssl x509 -fingerprint -sha1 -noout
+  GithubActionsThumbprints:
+    Type: CommaDelimitedList
+    Default: "6938fd4d98bab03faadb97b34396831e3780aea1,1c58a3a8518e8759bf075b76b750d4f2df264fcd,f879abce0008e4eb126e0097e46620f5aaae26ad"
+    Description: >
+      Comma-separated SHA-1 thumbprints of GitHub's OIDC TLS certificate
+      chain. Listing multiple known thumbprints keeps the stack functional
+      across GitHub certificate rotations.
+
+  # --- ManagedPolicyARNs ------------------------------------------------------
+  # AWS managed (or customer managed) IAM policy ARNs to attach to the role.
+  # `AdministratorAccess` is convenient for learning but is NOT recommended
+  # for production deployments. For real workloads, attach a custom
+  # least-privilege policy that grants only the actions Terraform needs.
+  ManagedPolicyARNs:
+    Type: CommaDelimitedList
+    Default: "arn:aws:iam::aws:policy/AdministratorAccess"
+    Description: >
+      Comma-delimited list of managed-policy ARNs to attach to the assumable
+      role. Replace with a least-privilege policy ARN before using in prod.
+
+  # --- SubjectClaimFilters ----------------------------------------------------
+  # The single most important security control. Restricts WHICH GitHub identity
+  # is allowed to assume the role.
+  #
+  #   Pattern             →  Effect
+  #   ------------------------------------------------------------------------
+  #   repo:OWNER/REPO:*                              Any branch / tag / PR / env
+  #   repo:OWNER/REPO:ref:refs/heads/main            Only the `main` branch
+  #   repo:OWNER/REPO:environment:production         Only the `production` env
+  #   repo:OWNER/REPO:ref:refs/tags/v*               Only release tags v*
+  #   repo:OWNER/REPO:pull_request                   Only PR runs (same repo)
+  #
+  # Avoid wildcards over the OWNER segment in public repos.
+  SubjectClaimFilters:
+    Type: CommaDelimitedList
+    Default: "repo:OWNER_PLACEHOLDER/REPO_PLACEHOLDER:*"
+    Description: >
+      One or more `sub` claim values that are allowed to assume this role.
+      Format: repo:<GithubOrg>/<RepoName>:<scope>. For public repositories
+      pin scope to a branch, tag, or environment whenever possible.
+
+  # --- RoleName ---------------------------------------------------------------
+  # Name of the IAM role that GitHub Actions will assume. Choose something
+  # descriptive and consistent across environments.
+  RoleName:
+    Type: String
+    Default: "Terraform-deployer-role"
+    Description: >
+      The name of the IAM Role created by this stack. The Role ARN is exported
+      in the Outputs section and should be referenced from your workflow YAML.
+
+  # --- MaxSessionDurationSeconds ---------------------------------------------
+  # How long temporary credentials remain valid after the role is assumed.
+  # 3600 (1 hour) is the safest default. Extend only if a single workflow run
+  # genuinely needs more time (e.g., long-running Terraform applies).
+  MaxSessionDurationSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+    Description: >
+      Maximum session length, in seconds, for assumed-role credentials.
+      Allowed range: 3600 (1h) to 43200 (12h).
+
+
+# -----------------------------------------------------------------------------
+#  RESOURCES
+# -----------------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------------------
+  #  GitHubOidcProvider
+  #  -------------------------------------------------------------------------
+  #  Registers GitHub as a trusted OIDC Identity Provider in this AWS account.
+  #  Only one provider per issuer URL can exist per account — if your account
+  #  already has this provider, skip the resource (or import it) before
+  #  deploying.
+  # ---------------------------------------------------------------------------
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: "https://token.actions.githubusercontent.com"
+      ClientIdList: !Ref AudienceList
+      ThumbprintList: !Ref GithubActionsThumbprints
+      Tags:
+        - Key: Project
+          Value: real-world-ecommerce-devops-project-eks-terraform
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: GitHub-Actions-OIDC
+
+
+  # ---------------------------------------------------------------------------
+  #  GitHubActionsAssumableRole
+  #  -------------------------------------------------------------------------
+  #  The IAM Role that workflow runs assume via STS:AssumeRoleWithWebIdentity.
+  #
+  #  The trust policy below contains TWO security checks that AWS evaluates
+  #  on every assume-role call:
+  #
+  #    1. Condition `token.actions.githubusercontent.com:aud`
+  #       — verifies the audience claim matches `sts.amazonaws.com`.
+  #
+  #    2. Condition `token.actions.githubusercontent.com:sub`
+  #       — verifies the subject claim matches one of the allowed values from
+  #         SubjectClaimFilters. This is what restricts the role to a specific
+  #         repo / branch / environment.
+  #
+  #  Both conditions must be satisfied; failing either rejects the request.
+  # ---------------------------------------------------------------------------
+  GitHubActionsAssumableRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      MaxSessionDuration: !Ref MaxSessionDurationSeconds
+      ManagedPolicyArns: !Ref ManagedPolicyARNs
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: GitHubActionsAssumeRoleWithWebIdentity
+            Effect: Allow
+            Principal:
+              Federated: !GetAtt GitHubOidcProvider.Arn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                # Audience check — must be `sts.amazonaws.com`
+                token.actions.githubusercontent.com:aud: !Select [0, !Ref AudienceList]
+              StringLike:
+                # Subject check — pinned to your repo (and optionally branch/env)
+                token.actions.githubusercontent.com:sub: !Ref SubjectClaimFilters
+      Tags:
+        - Key: Project
+          Value: real-world-ecommerce-devops-project-eks-terraform
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: GitHub-Actions-Deployer
+        - Key: Environment
+          Value: shared
+
+
+# -----------------------------------------------------------------------------
+#  OUTPUTS
+#  ---------------------------------------------------------------------------
+#  Values surfaced after a successful deployment. Copy the RoleArn into your
+#  GitHub Actions workflow YAML.
+# -----------------------------------------------------------------------------
+Outputs:
+
+  OIDCProviderArn:
+    Description: ARN of the GitHub Actions OIDC Identity Provider.
+    Value: !GetAtt GitHubOidcProvider.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-OIDCProviderArn"
+
+  RoleArn:
+    Description: >
+      ARN of the IAM role that GitHub Actions workflows should assume. Place
+      this value in the `role-to-assume` field of the
+      `aws-actions/configure-aws-credentials` action.
+    Value: !GetAtt GitHubActionsAssumableRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleArn"
+
+  RoleName:
+    Description: Name of the IAM role created by this stack.
+    Value: !Ref GitHubActionsAssumableRole
+
+  UsageHint:
+    Description: Snippet to drop into your GitHub Actions workflow.
+    Value: !Sub |
+      env:
+        AWS_REGION: ${AWS::Region}
+        ROLE_TO_ASSUME: ${GitHubActionsAssumableRole.Arn}
+        AWS_SESSION_NAME: ${RoleName}-session
+
+
+# =============================================================================
+#  END OF TEMPLATE
+#  -----------------------------------------------------------------------------
+#  Post-deployment checklist:
+#    ☐ Replace OWNER_PLACEHOLDER/REPO_PLACEHOLDER in SubjectClaimFilters
+#    ☐ Confirm the role's managed policy is appropriate (least privilege!)
+#    ☐ Add `permissions: id-token: write` to your workflow YAML
+#    ☐ Reference the RoleArn output in your workflow's
+#         `aws-actions/configure-aws-credentials` step
+#    ☐ Verify with `aws sts get-caller-identity` in the first workflow run
+#    ☐ Enable CloudTrail and alert on AssumeRoleWithWebIdentity events
+# =============================================================================
