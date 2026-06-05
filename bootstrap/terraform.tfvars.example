@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and replace with your values.
+# DO NOT commit the populated terraform.tfvars file.
+
+aws_region        = "ap-south-1"
+project_name      = "ecommerce-eks"
+state_bucket_name = "ecommerce-eks-tfstate-CHANGE-ME-1717000000"

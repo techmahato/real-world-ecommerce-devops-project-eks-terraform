@@ -153,7 +153,7 @@ Before starting, make sure you have:
 
 A community-maintained template provisions both the OIDC provider and the assumable role in one shot:
 
-🔗 **Template:** [`oidc-github-role.yml`](https://github.com/CWM-Kolkata/cwm-cloudformation-templates/blob/main/github/oidc-github-role.yml)
+🔗 **Template:** [`oidc-github-role.yml`](./oidc-github-role.yml) — included in this repo under [`docs/oidc-github-role.yml`](./oidc-github-role.yml)
 
 In the AWS Console → **CloudFormation → Create stack → Upload a template file**, paste the YAML above and click **Next**.
 
@@ -279,7 +279,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.6
+          terraform_version: 1.11.4
 
       - name: Terraform Init
         run: terraform init

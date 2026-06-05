@@ -1,0 +1,151 @@
+# =============================================================================
+#  Terraform Force-Unlock (S3-only backend)
+#  ---------------------------------------------------------------------------
+#  Manually-triggered workflow to release a stuck S3 state lock.
+#
+#  How S3-only locking works (Terraform 1.10+):
+#    • When a run starts, Terraform writes a `.tflock` file next to the state
+#      file in the S3 bucket using a conditional PutObject (If-None-Match: *).
+#    • While the lockfile exists, no other run can acquire the lock.
+#    • When the run finishes cleanly, Terraform deletes the lockfile.
+#    • If the run is killed mid-flight, the lockfile is left behind and
+#      future runs fail with "Error acquiring the state lock".
+#
+#  This workflow either:
+#    1. Runs `terraform force-unlock <id>` (Terraform's built-in path), OR
+#    2. Falls back to deleting the orphaned lockfile object in S3 directly
+#       — useful when the lock-info object is corrupt and Terraform can't
+#       parse the ID.
+#
+#  Use ONLY when you are certain no Terraform run is in progress.
+#  Force-unlocking a live apply will corrupt state.
+#
+#  Gated by the `production` GitHub Environment so it always requires
+#  reviewer approval — regardless of which target environment is being
+#  unlocked.
+# =============================================================================
+
+name: Terraform Force-Unlock
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment whose state to unlock"
+        required: true
+        type: choice
+        options: [dev, production]
+      method:
+        description: "Unlock method"
+        required: true
+        type: choice
+        default: "force-unlock"
+        options:
+          - force-unlock          # use `terraform force-unlock <id>`
+          - delete-s3-lockfile    # delete the .tflock object from S3 directly
+      lock_id:
+        description: "Lock ID (UUID) — required for `force-unlock` method"
+        required: false
+        type: string
+      reason:
+        description: "Why this unlock is needed (audit log)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  # Terraform 1.10+ is required for native S3 state locking.
+  TERRAFORM_VERSION: "1.11.4"
+
+jobs:
+  unlock:
+    name: Force-Unlock ${{ inputs.environment }} (${{ inputs.method }})
+    runs-on: ubuntu-latest
+    environment: production   # always require reviewer approval
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: environments/${{ inputs.environment }}
+
+    steps:
+      # ── Always-first audit step ─────────────────────────────────────
+      # Writes the request to GITHUB_STEP_SUMMARY before doing anything,
+      # so the audit log exists even if the unlock itself fails.
+      - name: Audit Log
+        run: |
+          {
+            echo "### ⚠️ Terraform Force-Unlock"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Environment | \`${{ inputs.environment }}\` |"
+            echo "| Method | \`${{ inputs.method }}\` |"
+            echo "| Lock ID | \`${{ inputs.lock_id }}\` |"
+            echo "| Requested by | @${{ github.actor }} |"
+            echo "| Reason | ${{ inputs.reason }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate Inputs
+        run: |
+          if [[ "${{ inputs.method }}" == "force-unlock" && -z "${{ inputs.lock_id }}" ]]; then
+            echo "::error::lock_id is required when method is 'force-unlock'."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}-unlock
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        if: inputs.method == 'force-unlock'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      # ── Path A: Terraform's built-in force-unlock ────────────────────
+      - name: Terraform Init
+        if: inputs.method == 'force-unlock'
+        run: terraform init -input=false -no-color -backend-config=backend.hcl
+
+      - name: Terraform Force-Unlock
+        if: inputs.method == 'force-unlock'
+        run: terraform force-unlock -force "${{ inputs.lock_id }}"
+
+      # ── Path B: Direct S3 lockfile deletion ─────────────────────────
+      # The lockfile sits next to the state file with a `.tflock` suffix.
+      # We read the bucket+key from backend.hcl to avoid hardcoding.
+      - name: Read Backend Config
+        if: inputs.method == 'delete-s3-lockfile'
+        id: backend
+        run: |
+          BUCKET=$(grep -E '^\s*bucket\s*=' backend.hcl | sed -E 's/.*"([^"]+)".*/\1/')
+          KEY=$(grep -E '^\s*key\s*=' backend.hcl | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
+          echo "key=${KEY}"       >> "$GITHUB_OUTPUT"
+          echo "Lockfile: s3://${BUCKET}/${KEY}.tflock"
+
+      - name: Delete S3 Lockfile
+        if: inputs.method == 'delete-s3-lockfile'
+        run: |
+          set -e
+          BUCKET="${{ steps.backend.outputs.bucket }}"
+          KEY="${{ steps.backend.outputs.key }}.tflock"
+          echo "Checking if lockfile exists at s3://${BUCKET}/${KEY}"
+          if aws s3api head-object --bucket "${BUCKET}" --key "${KEY}" 2>/dev/null; then
+            echo "Lockfile found — deleting."
+            aws s3api delete-object --bucket "${BUCKET}" --key "${KEY}"
+            echo "Lockfile deleted."
+          else
+            echo "::warning::No lockfile found at s3://${BUCKET}/${KEY} — nothing to do."
+          fi

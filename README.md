@@ -37,7 +37,7 @@ It's designed to mirror what actually happens in production engineering teams �
 
 ### 🎯 Who This Is For
 
-- **DevOps engineers** preparing for senior/lead roles or interviews
+- **DevOps engineers** preparing for senior/lead roles
 - **SREs and platform engineers** building EKS reference architectures
 - **Cloud engineers** transitioning from generalist AWS work into Kubernetes
 - **Developers** who want to understand how their code reaches production
@@ -46,7 +46,7 @@ It's designed to mirror what actually happens in production engineering teams �
 ### ✨ What Makes This Different
 
 - ✅ **Production-grade**, not tutorial-grade — IRSA, network policies, secrets management, autoscaling, observability, and security baked in
-- ✅ **Modular Terraform** — reusable modules, clean separation between environments (dev / staging / prod)
+- ✅ **Modular Terraform** — reusable modules, clean separation between environments (dev / prod)
 - ✅ **GitOps-native** — ArgoCD-driven continuous deployment, no `kubectl apply` in pipelines
 - ✅ **End-to-end** — from VPC and IAM all the way to Grafana dashboards and chaos testing
 - ✅ **Documented like real engineering** — ADRs, runbooks, and architecture diagrams included
@@ -110,7 +110,7 @@ flowchart TB
 | Layer | Tools |
 |---|---|
 | **Cloud Provider** | AWS (EKS, VPC, IAM, ALB, Route 53, RDS, ElastiCache, ECR, S3, Secrets Manager) |
-| **Infrastructure as Code** | Terraform (with remote S3 backend + DynamoDB state locking) |
+| **Infrastructure as Code** | Terraform 1.11+ (S3-only backend with native `use_lockfile` state locking) |
 | **Container Orchestration** | Kubernetes (EKS 1.30+) |
 | **Application Packaging** | Helm Charts |
 | **Continuous Deployment** | ArgoCD (GitOps) |
@@ -152,7 +152,7 @@ cd real-world-ecommerce-devops-project-eks-terraform
 # 2. Configure AWS credentials
 aws configure
 
-# 3. Bootstrap remote state backend (S3 + DynamoDB)
+# 3. Bootstrap remote state backend (S3-only, native locking)
 cd terraform/bootstrap
 terraform init && terraform apply
 
@@ -180,7 +180,7 @@ make app-deploy
 real-world-ecommerce-devops-project-eks-terraform/
 │
 ├── terraform/
-│   ├── bootstrap/              # S3 + DynamoDB remote state backend
+│   ├── bootstrap/              # S3 remote state backend (native locking)
 │   ├── modules/                # Reusable Terraform modules
 │   │   ├── vpc/
 │   │   ├── eks/
@@ -190,8 +190,7 @@ real-world-ecommerce-devops-project-eks-terraform/
 │   │   └── addons/
 │   └── environments/
 │       ├── dev/
-│       ├── staging/
-│       └── prod/
+│       └── production/
 │
 ├── kubernetes/
 │   ├── platform/               # ArgoCD, ingress, cert-manager, external-dns

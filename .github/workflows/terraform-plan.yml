@@ -1,0 +1,167 @@
+# =============================================================================
+#  Terraform Plan
+#  ---------------------------------------------------------------------------
+#  Runs on every PR targeting `develop`. Computes the diff against AWS,
+#  posts it as a PR comment, and saves the plan binary as a workflow
+#  artifact so the apply job can run *exactly* the reviewed plan.
+#
+#  Authentication: GitHub OIDC → AWS IAM role (no static keys).
+#
+#  Triggers:
+#    • PR → develop                          (auto)
+#    • workflow_dispatch with env input      (manual rerun)
+# =============================================================================
+
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "environments/dev/**"
+      - "modules/**"
+      - ".github/workflows/terraform-plan.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to plan against"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, production]
+
+permissions:
+  id-token: write       # OIDC
+  contents: read        # checkout
+  pull-requests: write  # plan comment
+
+concurrency:
+  group: tf-plan-${{ github.ref }}-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: true
+
+env:
+  # Terraform 1.10+ is required for native S3 state locking (use_lockfile).
+  TERRAFORM_VERSION: "1.11.4"
+  TARGET_ENV: ${{ inputs.environment || 'dev' }}
+
+jobs:
+  plan:
+    name: Plan (${{ inputs.environment || 'dev' }})
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Use the GitHub Environment so per-env reviewers/secrets apply.
+    environment: ${{ inputs.environment || 'dev' }}
+
+    defaults:
+      run:
+        working-directory: environments/${{ inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}-${{ github.run_attempt }}-plan
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify Caller Identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -input=false -no-color -backend-config=backend.hcl
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          terraform plan \
+            -input=false -no-color -lock=false \
+            -var-file="${TARGET_ENV}.tfvars" \
+            -out=tfplan.binary \
+            2>&1 | tee plan-output.txt
+
+      - name: Upload Plan Artifact
+        if: steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ env.TARGET_ENV }}-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            environments/${{ env.TARGET_ENV }}/tfplan.binary
+            environments/${{ env.TARGET_ENV }}/${{ env.TARGET_ENV }}.tfvars
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Comment Plan on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PLAN_FILE: environments/${{ env.TARGET_ENV }}/plan-output.txt
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let plan = 'Plan file not found.';
+            if (fs.existsSync(process.env.PLAN_FILE)) {
+              plan = fs.readFileSync(process.env.PLAN_FILE, 'utf8');
+              if (plan.length > 60000) {
+                plan = plan.slice(0, 60000) + "\n\n...output truncated — see workflow logs...";
+              }
+            }
+            const body = `### 📋 Terraform Plan — \`${process.env.TARGET_ENV || 'dev'}\`
+
+            | Step | Status |
+            |------|--------|
+            | init | \`${{ steps.init.outcome }}\` |
+            | validate | \`${{ steps.validate.outcome }}\` |
+            | plan | \`${{ steps.plan.outcome }}\` |
+
+            <details><summary>Show full plan</summary>
+
+            \`\`\`hcl
+            ${plan}
+            \`\`\`
+
+            </details>
+
+            *Triggered by @${{ github.actor }} via \`${{ github.event_name }}\`*`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      - name: Plan Summary
+        if: always()
+        run: |
+          {
+            echo "### 📋 Terraform Plan Summary — \`${TARGET_ENV}\`"
+            echo ""
+            echo "| Step | Status |"
+            echo "|------|--------|"
+            echo "| init | \`${{ steps.init.outcome }}\` |"
+            echo "| validate | \`${{ steps.validate.outcome }}\` |"
+            echo "| plan | \`${{ steps.plan.outcome }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if Plan Failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

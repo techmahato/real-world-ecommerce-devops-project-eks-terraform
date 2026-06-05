@@ -1,0 +1,165 @@
+# =============================================================================
+#  Terraform Apply
+#  ---------------------------------------------------------------------------
+#  Applies infrastructure changes to AWS.
+#
+#  Triggers:
+#    • push to develop  → auto-apply to dev      (no human gate beyond PR review)
+#    • push to main     → apply to production    (gated by GitHub Environment)
+#    • workflow_dispatch → manual run for any env (with reviewer gate per env)
+#
+#  Apply uses the SAVED PLAN BINARY produced by the plan workflow when
+#  available — guaranteeing that the diff applied is the diff reviewed.
+#  Falls back to a fresh plan+apply only on workflow_dispatch.
+# =============================================================================
+
+name: Terraform Apply
+
+on:
+  push:
+    branches:
+      - develop   # auto-deploy to dev
+      - main      # auto-deploy to production (with environment approval)
+    paths:
+      - "environments/**"
+      - "modules/**"
+      - ".github/workflows/terraform-apply.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to apply"
+        required: true
+        type: choice
+        options: [dev, production]
+
+permissions:
+  id-token: write
+  contents: read
+
+# Serialize: never two applies on the same env at once.
+concurrency:
+  group: tf-apply-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Terraform 1.10+ is required for native S3 state locking (use_lockfile).
+  TERRAFORM_VERSION: "1.11.4"
+
+jobs:
+  determine-env:
+    name: Determine Target Environment
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.pick.outputs.target }}
+    steps:
+      - id: pick
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "target=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "target=production" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "target=dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unsupported ref" && exit 1
+          fi
+
+  apply:
+    name: Apply (${{ needs.determine-env.outputs.target }})
+    needs: determine-env
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ needs.determine-env.outputs.target }}
+
+    defaults:
+      run:
+        working-directory: environments/${{ needs.determine-env.outputs.target }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}-${{ github.run_attempt }}-apply
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify Caller Identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -input=false -no-color -backend-config=backend.hcl
+
+      # Best-effort: try to download a plan binary produced for this branch.
+      # If none exists (e.g., manual dispatch), fall through to a fresh plan.
+      - name: Find Plan Artifact
+        id: find-plan
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const target = "${{ needs.determine-env.outputs.target }}";
+            const { data } = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const match = data.artifacts.find(a =>
+              a.name.startsWith(`tfplan-${target}-`) && !a.expired
+            );
+            if (!match) {
+              core.setOutput('found', 'false');
+              return;
+            }
+            core.setOutput('found', 'true');
+            core.setOutput('artifact_name', match.name);
+            core.setOutput('artifact_id', match.id);
+
+      - name: Download Plan Artifact
+        if: steps.find-plan.outputs.found == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.find-plan.outputs.artifact_name }}
+          path: environments/${{ needs.determine-env.outputs.target }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+
+      - name: Apply Saved Plan
+        if: steps.find-plan.outputs.found == 'true'
+        run: terraform apply -input=false -no-color tfplan.binary
+
+      - name: Apply (fresh plan, no saved artifact)
+        if: steps.find-plan.outputs.found != 'true'
+        run: |
+          terraform apply -input=false -no-color -auto-approve \
+            -var-file="${TARGET}.tfvars"
+        env:
+          TARGET: ${{ needs.determine-env.outputs.target }}
+
+      - name: Capture Outputs
+        if: always()
+        id: tf-outputs
+        run: terraform output -no-color || true
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          {
+            echo "### 🚀 Terraform Apply — \`${{ needs.determine-env.outputs.target }}\`"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Branch | \`${{ github.ref_name }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Actor | @${{ github.actor }} |"
+            echo "| Trigger | \`${{ github.event_name }}\` |"
+            echo "| Status | \`${{ job.status }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

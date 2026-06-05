@@ -1,0 +1,121 @@
+# =============================================================================
+#  Terraform Validate
+#  ---------------------------------------------------------------------------
+#  Runs on every PR. Read-only checks only — never touches AWS state.
+#  Catches style, syntax, lint, and security issues before review starts.
+#
+#  Stages (per environment, in matrix):
+#    1. terraform fmt -check    — style gate
+#    2. terraform init -backend=false  — config-only init
+#    3. terraform validate      — syntax + missing-arg gate
+#    4. tflint                  — Terraform + AWS-specific lint
+#    5. checkov                 — IaC security scan
+#
+#  Triggers: PR → main or develop, when terraform/.github files change
+# =============================================================================
+
+name: Terraform Validate
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "environments/**"
+      - "modules/**"
+      - "bootstrap/**"
+      - ".github/workflows/terraform-*.yml"
+      - ".tflint.hcl"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# Cancel earlier validate runs on the same PR — only the latest commit matters.
+concurrency:
+  group: tf-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Terraform 1.10+ is required for native S3 state locking (use_lockfile).
+  TERRAFORM_VERSION: "1.11.4"
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.env }})
+    # Skip PRs from forks — they cannot use OIDC and we don't run their code.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, production]
+
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.env }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        id: fmt
+        working-directory: .
+        run: terraform fmt -check -recursive -diff
+
+      - name: Terraform Init (config-only, no backend)
+        id: init
+        run: terraform init -backend=false -input=false -no-color
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: TFLint Init
+        working-directory: .
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: TFLint
+        id: tflint
+        working-directory: .
+        run: tflint --recursive --format compact
+
+      - name: Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: environments/${{ matrix.env }}
+          framework: terraform
+          soft_fail: true
+          output_format: cli
+          download_external_modules: true
+
+      - name: Validate Summary
+        if: always()
+        run: |
+          {
+            echo "### 🔎 Validate Summary — \`${{ matrix.env }}\`"
+            echo ""
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| fmt | \`${{ steps.fmt.outcome }}\` |"
+            echo "| init | \`${{ steps.init.outcome }}\` |"
+            echo "| validate | \`${{ steps.validate.outcome }}\` |"
+            echo "| tflint | \`${{ steps.tflint.outcome }}\` |"
+            echo "| checkov | \`${{ steps.checkov.outcome }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

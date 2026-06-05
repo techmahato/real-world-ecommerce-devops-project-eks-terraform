@@ -11,8 +11,8 @@
 #    If a file contains secrets, local state, machine-specific config, or can
 #    be regenerated from source — it does NOT belong in Git.
 # =============================================================================
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 1. Terraform — Working Directories & Provider Plugins
 # -----------------------------------------------------------------------------
@@ -22,23 +22,23 @@
 # by re-running `terraform init`. Never commit this.
 .terraform/
 .terraform.d/
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 2. Terraform — State Files
 # -----------------------------------------------------------------------------
 # State files contain the *real-world mapping* of your infrastructure,
 # including resource IDs, IP addresses, and — critically — any sensitive
 # values (passwords, tokens, private keys) that providers wrote into state.
-# State MUST live in a remote backend (S3 + DynamoDB locking in this project),
+# State MUST live in a remote backend (S3-only with native use_lockfile in this project),
 # never in Git. Committing state is one of the most common security incidents
 # in IaC projects.
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
 terraform.tfstate.backup
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 3. Terraform — Crash Logs
 # -----------------------------------------------------------------------------
@@ -47,8 +47,8 @@ terraform.tfstate.backup
 # them privately with maintainers if needed, but never commit them.
 crash.log
 crash.*.log
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 4. Terraform — Variable Files (.tfvars)
 # -----------------------------------------------------------------------------
@@ -60,12 +60,17 @@ crash.*.log
 # pattern — see `!terraform.tfvars.example` below.
 *.tfvars
 *.tfvars.json
- 
+
 # Allow committing example/template tfvars so contributors know the schema.
 !*.tfvars.example
 !*.tfvars.json.example
- 
- 
+
+# Allow per-environment tfvars (no secrets — just non-sensitive config like
+# region, VPC CIDR, AZ list). Secrets must come from AWS Secrets Manager,
+# never from these files.
+!environments/*/*.tfvars
+
+
 # -----------------------------------------------------------------------------
 # 5. Terraform — Override Files
 # -----------------------------------------------------------------------------
@@ -77,8 +82,8 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 6. Terraform — Lock & Plan Artifacts
 # -----------------------------------------------------------------------------
@@ -92,15 +97,15 @@ override.tf.json
 # consuming (not authoring) modules, REMOVE the `.terraform.lock.hcl` line.
 .terraform.tfstate.lock.info
 .terraform.lock.hcl
- 
+
 # Plan output files — may contain the full proposed change set including
 # secrets. Treat them like state files.
 *.tfplan
 *.tfplan.*
 tfplan
 planout
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 7. Terraform — CLI Configuration
 # -----------------------------------------------------------------------------
@@ -109,16 +114,16 @@ planout
 # tokens for private registries.
 .terraformrc
 terraform.rc
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 8. Terraform — Optional Outputs (commented by default)
 # -----------------------------------------------------------------------------
 # Uncomment if your workflow generates these and you don't want them tracked.
 # *.dot          # Output of `terraform graph`
 # planout        # Saved plan files
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 9. Cloud Credentials & Secrets
 # -----------------------------------------------------------------------------
@@ -135,20 +140,20 @@ terraform.rc
 *.jks
 *.keystore
 *.truststore
- 
+
 # AWS-specific
 .aws/
 aws-credentials
 credentials
 *.credentials
- 
+
 # Generic secret files
 secrets/
 secret.*
 *.secret
 *.secrets
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 10. Environment Files
 # -----------------------------------------------------------------------------
@@ -159,8 +164,8 @@ secret.*
 .env.*
 *.env
 !.env.example
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 11. Kubernetes & Helm — Local Artifacts
 # -----------------------------------------------------------------------------
@@ -169,12 +174,12 @@ secret.*
 kubeconfig
 kubeconfig.*
 *.kubeconfig
- 
+
 helm-charts/**/charts/
 helm-charts/**/Chart.lock
 *.tgz
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 12. Editor & IDE Files
 # -----------------------------------------------------------------------------
@@ -191,8 +196,8 @@ helm-charts/**/Chart.lock
 *.code-workspace
 *.sublime-project
 *.sublime-workspace
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 13. Operating System Junk
 # -----------------------------------------------------------------------------
@@ -207,8 +212,8 @@ ehthumbs.db
 Thumbs.db
 desktop.ini
 $RECYCLE.BIN/
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 14. Logs & Temporary Files
 # -----------------------------------------------------------------------------
@@ -221,8 +226,8 @@ logs/
 *.bak
 *.backup
 *.old
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 15. Archives & Binary Artifacts
 # -----------------------------------------------------------------------------
@@ -240,8 +245,8 @@ logs/
 *.dll
 *.so
 *.dylib
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 16. Data Files
 # -----------------------------------------------------------------------------
@@ -255,8 +260,8 @@ logs/
 *.db
 *.dump
 !examples/**/*.csv
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 17. Python — If You Add Helper Scripts
 # -----------------------------------------------------------------------------
@@ -268,8 +273,8 @@ __pycache__/
 venv/
 .pytest_cache/
 .mypy_cache/
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 18. Node — If You Add JS Tooling (e.g., CDK, scripts)
 # -----------------------------------------------------------------------------
@@ -278,16 +283,16 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 19. CI/CD Local Caches
 # -----------------------------------------------------------------------------
 # Local caches from running pipelines on your machine.
 .act/
 .github-actions-cache/
- 
- 
+
+
 # -----------------------------------------------------------------------------
 # 20. Project-Specific Ignores
 # -----------------------------------------------------------------------------
@@ -295,8 +300,8 @@ yarn-error.log*
 scratch/
 sandbox/
 *.draft.md
- 
- 
+
+
 # =============================================================================
 #  End of .gitignore
 #  Reminder: Once a sensitive file is committed, removing it later does NOT
