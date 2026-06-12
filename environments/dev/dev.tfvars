@@ -1,3 +1,5 @@
+# First deployment of the dev VPC.
+
 aws_region         = "ap-south-1"
 project_name       = "ecommerce-eks"
 environment        = "dev"
