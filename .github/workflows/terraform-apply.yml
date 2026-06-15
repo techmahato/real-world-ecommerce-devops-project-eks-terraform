@@ -122,6 +122,8 @@ jobs:
             core.setOutput('found', 'true');
             core.setOutput('artifact_name', match.name);
             core.setOutput('artifact_id', match.id);
+            core.setOutput('run_id', match.workflow_run.id);
+            core.info(`Found artifact ${match.name} from run ${match.workflow_run.id}`);
 
       - name: Download Plan Artifact
         if: steps.find-plan.outputs.found == 'true'
@@ -130,7 +132,7 @@ jobs:
           name: ${{ steps.find-plan.outputs.artifact_name }}
           path: environments/${{ needs.determine-env.outputs.target }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+          run-id: ${{ steps.find-plan.outputs.run_id }}
 
       - name: Apply Saved Plan
         if: steps.find-plan.outputs.found == 'true'
