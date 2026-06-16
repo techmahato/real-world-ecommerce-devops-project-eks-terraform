@@ -68,7 +68,7 @@ resource "aws_security_group" "endpoints" {
   }
 
   egress {
-    description = "All outbound (endpoint → AWS service)"
+    description = "All outbound (endpoint to AWS service)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
