@@ -42,3 +42,27 @@ module "network" {
   # No `tags` input — canonical tags flow in via provider default_tags
   # (see locals.common_tags + providers.tf default_tags block).
 }
+
+# =============================================================================
+#  Bastion host - prod posture
+#  ---------------------------------------------------------------------------
+#  Same module as dev. Production typically prefers SSM-only (no SSH key,
+#  no allowed_ssh_cidrs) - audit trail goes through SSM session logs
+#  instead of /var/log/auth.log on the box.
+# =============================================================================
+
+module "bastion" {
+  count  = var.enable_bastion ? 1 : 0
+  source = "../../modules/bastion"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  vpc_id    = module.network.vpc_id
+  vpc_cidr  = var.vpc_cidr
+  subnet_id = module.network.public_subnet_ids[0]
+
+  instance_type     = var.bastion_instance_type
+  ssh_key_name      = var.bastion_ssh_key_name
+  allowed_ssh_cidrs = var.bastion_allowed_ssh_cidrs
+}

@@ -36,3 +36,19 @@ output "elasticache_subnet_group_name" {
   description = "ElastiCache subnet group name — pass to Redis modules."
   value       = module.network.elasticache_subnet_group_name
 }
+
+# ── Bastion (only present when enable_bastion = true) ──────────────────────
+output "bastion_instance_id" {
+  description = "Bastion EC2 instance ID. Null when bastion is disabled."
+  value       = try(module.bastion[0].instance_id, null)
+}
+
+output "bastion_public_ip" {
+  description = "Bastion public IP for SSH. Null when bastion is disabled or has no public IP."
+  value       = try(module.bastion[0].public_ip, null)
+}
+
+output "bastion_ssm_command" {
+  description = "Copy-paste shell command to SSM into the bastion."
+  value       = try(module.bastion[0].ssm_start_session_command, null)
+}
