@@ -17,5 +17,5 @@ flow_logs_destination = "s3"
 # no SSH CIDRs). Audit trail comes from SSM session logs.
 enable_bastion            = false
 bastion_instance_type     = "t3.micro"
-bastion_ssh_key_name      = "bastion-host.pem"
+bastion_ssh_key_name      = "bastion-host"
 bastion_allowed_ssh_cidrs = "0.0.0.0/0" # will change 
