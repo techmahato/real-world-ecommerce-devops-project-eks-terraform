@@ -39,7 +39,6 @@ module "network" {
   enable_dedicated_nacls = true
   enable_vpc_endpoints   = true
 
-  # The module only uses var.tags for per-resource Name maps; the canonical
-  # tags flow in via provider default_tags. Pass empty to avoid duplication.
-  tags = {}
+  # No `tags` input — canonical tags flow in via provider default_tags
+  # (see locals.common_tags + providers.tf default_tags block).
 }

@@ -48,17 +48,12 @@ variable "availability_zones" {
   }
 }
 
-variable "tags" {
-  description = <<-EOT
-    Reserved for compatibility. The canonical tag set (Project, Environment,
-    Owner, CostCenter, DataClassification, Repository, ManagedBy) is applied
-    by the AWS provider's `default_tags` block at the environment level.
-    The module only sets resource-specific tags (Name, Tier).
-    Pass an empty map `{}` unless you need to add a one-off tag override.
-  EOT
-  type        = map(string)
-  default     = {}
-}
+# Note: there is no `tags` input. Canonical tags (Project, Environment, Owner,
+# CostCenter, DataClassification, Repository, ManagedBy) are applied via the
+# AWS provider's `default_tags` block in environments/*/providers.tf — every
+# resource the provider creates inherits them automatically. This module only
+# sets resource-specific tags (Name, Tier). To add a tag everywhere, edit
+# `local.common_tags` in the env's main.tf.
 
 # =============================================================================
 #  NAT GATEWAY MODE
