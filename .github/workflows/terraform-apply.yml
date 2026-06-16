@@ -100,6 +100,12 @@ jobs:
 
       # Best-effort: try to download a plan binary produced for this branch.
       # If none exists (e.g., manual dispatch), fall through to a fresh plan.
+      #
+      # The lookup walks recent artifacts repo-wide and exposes:
+      #   • artifact_name — the artifact's name
+      #   • run_id        — the workflow run that produced it (CRITICAL for
+      #                     download-artifact@v4, which needs the source run-id
+      #                     when downloading from a different run)
       - name: Find Plan Artifact
         id: find-plan
         continue-on-error: true

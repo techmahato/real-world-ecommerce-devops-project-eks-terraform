@@ -1,3 +1,6 @@
+# Production environment — only the variables that tfvars actually sets.
+# Posture knobs (NACLs, endpoints, hardening) are hardcoded in main.tf.
+
 variable "aws_region" {
   description = "AWS region."
   type        = string
@@ -9,12 +12,12 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "Environment name (dev or production)."
+  description = "Environment name."
   type        = string
 }
 
 variable "vpc_cidr" {
-  description = "CIDR block for the environment's VPC."
+  description = "VPC CIDR block (must be /16)."
   type        = string
 }
 
@@ -23,14 +26,42 @@ variable "availability_zones" {
   type        = list(string)
 }
 
+variable "single_nat_gateway" {
+  description = "Single shared NAT (true=dev, false=prod)."
+  type        = bool
+}
+
+variable "flow_logs_destination" {
+  description = "Flow log destination: cloud-watch-logs (dev) or s3 (prod)."
+  type        = string
+}
+
+# ── Tag schema (matches bootstrap + dev) ────────────────────────────────────
 variable "owner" {
   description = "Team or person responsible for this environment."
   type        = string
   default     = "platform-team"
 }
 
-variable "enable_flow_logs" {
-  description = "Enable VPC flow logs (recommended for production)."
-  type        = bool
-  default     = false
+variable "cost_center" {
+  description = "Bill-back / chargeback identifier used by Finance."
+  type        = string
+  default     = "eng-platform"
+}
+
+variable "data_classification" {
+  description = "Sensitivity of data stored: public, internal, confidential, or restricted."
+  type        = string
+  default     = "confidential" # production handles real customer data
+
+  validation {
+    condition     = contains(["public", "internal", "confidential", "restricted"], var.data_classification)
+    error_message = "data_classification must be one of: public, internal, confidential, restricted."
+  }
+}
+
+variable "repository" {
+  description = "Source repository URL — answers 'where does this resource come from?'"
+  type        = string
+  default     = "github.com/your-org/eks-terraform"
 }
