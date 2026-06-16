@@ -18,4 +18,4 @@ flow_logs_destination = "s3"
 enable_bastion            = false
 bastion_instance_type     = "t3.micro"
 bastion_ssh_key_name      = "bastion-host"
-bastion_allowed_ssh_cidrs = "0.0.0.0/0" # will change 
+bastion_allowed_ssh_cidrs = "49.37.8.68/32" # will change 
