@@ -288,15 +288,15 @@ variable "interface_endpoint_services" {
   description = "List of AWS service names (without the regional prefix) for which to create interface endpoints. Defaults cover an EKS workload."
   type        = list(string)
   default = [
-    "ecr.api",          # Pull image manifests
-    "ecr.dkr",          # Pull image layers
-    "eks",              # EKS control-plane API
-    "sts",              # IRSA token exchange
-    "logs",             # CloudWatch Logs
-    "secretsmanager",   # External Secrets Operator targets
-    "ssm",              # SSM Parameter Store, Session Manager
-    "ssmmessages",      # Session Manager
-    "ec2messages",      # SSM messaging
+    "ecr.api",              # Pull image manifests
+    "ecr.dkr",              # Pull image layers
+    "eks",                  # EKS control-plane API
+    "sts",                  # IRSA token exchange
+    "logs",                 # CloudWatch Logs
+    "secretsmanager",       # External Secrets Operator targets
+    "ssm",                  # SSM Parameter Store, Session Manager
+    "ssmmessages",          # Session Manager
+    "ec2messages",          # SSM messaging
     "elasticloadbalancing", # AWS Load Balancer Controller
   ]
 }
