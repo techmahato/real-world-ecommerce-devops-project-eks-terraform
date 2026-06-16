@@ -10,7 +10,7 @@ availability_zones = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
 owner              = "platform-team"
 
 # HA: per-AZ NAT, S3 flow logs (cheap long retention).
-single_nat_gateway    = false
+single_nat_gateway    = true
 flow_logs_destination = "s3"
 
 # Bastion - off by default in prod. SSM-only recommended (no SSH key,
