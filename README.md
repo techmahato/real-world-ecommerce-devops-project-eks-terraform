@@ -124,13 +124,15 @@ flowchart TB
 
 ## 🚀 Quick Start
 
+> 📘 **Full step-by-step setup guide:** [`docs/SETUP.md`](docs/SETUP.md) — copy-paste-and-go runbook. From a fresh fork to a live VPC in 30 minutes.
+
 ### ✅ Prerequisites
 
 Make sure you have the following installed and configured:
 
 ```bash
 aws --version          # AWS CLI v2.13+
-terraform --version    # Terraform v1.6+
+terraform --version    # Terraform v1.10+
 kubectl version        # kubectl v1.30+
 helm version           # Helm v3.13+
 git --version          # Git v2.40+

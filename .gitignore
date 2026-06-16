@@ -301,6 +301,9 @@ scratch/
 sandbox/
 *.draft.md
 
+# Captured state-bucket name from `bootstrap` — local-only, used by SETUP.md.
+.bucket-name
+
 
 # =============================================================================
 #  End of .gitignore
