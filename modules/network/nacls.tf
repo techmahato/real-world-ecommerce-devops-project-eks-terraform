@@ -54,10 +54,10 @@ resource "aws_network_acl" "public" {
   vpc_id     = aws_vpc.this.id
   subnet_ids = aws_subnet.public[*].id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-public-nacl"
     Tier = "public"
-  })
+  }
 }
 
 resource "aws_network_acl_rule" "public_inbound" {
@@ -101,10 +101,10 @@ resource "aws_network_acl" "private" {
   vpc_id     = aws_vpc.this.id
   subnet_ids = aws_subnet.private[*].id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-private-nacl"
     Tier = "private"
-  })
+  }
 }
 
 resource "aws_network_acl_rule" "private_inbound" {
@@ -152,10 +152,10 @@ resource "aws_network_acl" "database" {
   vpc_id     = aws_vpc.this.id
   subnet_ids = aws_subnet.database[*].id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-database-nacl"
     Tier = "database"
-  })
+  }
 }
 
 resource "aws_network_acl_rule" "database_inbound" {

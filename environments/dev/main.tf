@@ -1,20 +1,22 @@
 # =============================================================================
 #  Dev Environment — Composition
 #  ---------------------------------------------------------------------------
-#  This file is intentionally thin: it wires user-facing variables into the
-#  network module and adds environment-level concerns (tags). All design
-#  decisions live in the module itself.
-#
-#  Variables not listed here keep the module's defaults — opt-in whenever
-#  you need to override a knob from tfvars.
+#  Posture is hardcoded here (NACLs, endpoints, hardening) so dev and prod
+#  share the same network behaviour. Only cost knobs come from tfvars.
+#  See modules/network/README.md for the design rationale.
 # =============================================================================
 
 locals {
+  # Canonical tag schema — applied via provider default_tags to every taggable
+  # resource. Per-resource Name + Tier tags are added by the network module.
   common_tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    ManagedBy   = "terraform"
-    Owner       = var.owner
+    Project            = var.project_name
+    Environment        = var.environment
+    ManagedBy          = "terraform"
+    Owner              = var.owner
+    CostCenter         = var.cost_center
+    DataClassification = var.data_classification
+    Repository         = var.repository
   }
 }
 
@@ -27,24 +29,17 @@ module "network" {
   vpc_cidr           = var.vpc_cidr
   availability_zones = var.availability_zones
 
-  # NAT Gateway mode — dev defaults: single shared NAT (cost over HA)
+  # Cost knobs (from tfvars)
   single_nat_gateway     = var.single_nat_gateway
-  one_nat_gateway_per_az = var.one_nat_gateway_per_az
+  one_nat_gateway_per_az = !var.single_nat_gateway
+  flow_logs_destination  = var.flow_logs_destination
 
-  # Flow logs
-  enable_flow_logs            = var.enable_flow_logs
-  flow_logs_destination       = var.flow_logs_destination
-  flow_logs_retention_days    = var.flow_logs_retention_days
-  flow_logs_s3_lifecycle_days = var.flow_logs_s3_lifecycle_days
+  # Posture — identical to prod, hardcoded so it can never drift
+  enable_flow_logs       = true
+  enable_dedicated_nacls = true
+  enable_vpc_endpoints   = true
 
-  # Defense-in-depth NACLs
-  enable_dedicated_nacls = var.enable_dedicated_nacls
-
-  # VPC endpoints — saves NAT cost + improves security
-  enable_vpc_endpoints             = var.enable_vpc_endpoints
-  enable_s3_gateway_endpoint       = var.enable_s3_gateway_endpoint
-  enable_dynamodb_gateway_endpoint = var.enable_dynamodb_gateway_endpoint
-  interface_endpoint_services      = var.interface_endpoint_services
-
-  tags = local.common_tags
+  # The module only uses var.tags for per-resource Name maps; the canonical
+  # tags flow in via provider default_tags. Pass empty to avoid duplication.
+  tags = {}
 }

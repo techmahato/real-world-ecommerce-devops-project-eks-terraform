@@ -48,18 +48,18 @@ resource "aws_vpc" "this" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-vpc"
-  })
+  }
 }
 
 # ── Internet Gateway (only the public tier uses this) ──────────────────────
 resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-igw"
-  })
+  }
 }
 
 # =============================================================================
@@ -84,9 +84,9 @@ resource "aws_default_network_acl" "this" {
   # No ingress / egress rules → fully closed. If you ever attach a subnet
   # to the default NACL, traffic will fail and the misconfiguration surfaces
   # immediately rather than silently succeeding.
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-default-nacl-locked"
-  })
+  }
 
   # Subnet associations are managed by aws_network_acl_association elsewhere
   # — never let Terraform try to fight the per-tier NACLs over ownership.
@@ -100,9 +100,9 @@ resource "aws_default_security_group" "this" {
 
   # No ingress / egress → default SG is unusable. Workloads must use a
   # purpose-built SG that explicitly declares what they accept.
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-default-sg-locked"
-  })
+  }
 }
 
 # =============================================================================
@@ -117,11 +117,11 @@ resource "aws_subnet" "public" {
   availability_zone       = var.availability_zones[count.index]
   map_public_ip_on_launch = true
 
-  tags = merge(var.tags, {
+  tags = {
     Name                     = "${local.name_prefix}-public-${count.index}"
     Tier                     = "public"
     "kubernetes.io/role/elb" = "1"
-  })
+  }
 }
 
 resource "aws_route_table" "public" {
@@ -132,10 +132,10 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.this.id
   }
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-public-rt"
     Tier = "public"
-  })
+  }
 }
 
 resource "aws_route_table_association" "public" {
@@ -154,9 +154,9 @@ resource "aws_eip" "nat" {
   count  = local.nat_count
   domain = "vpc"
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-nat-eip-${count.index}"
-  })
+  }
 }
 
 resource "aws_nat_gateway" "this" {
@@ -165,9 +165,9 @@ resource "aws_nat_gateway" "this" {
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-nat-${count.index}"
-  })
+  }
 
   # NAT depends on a routable IGW being attached — without this, the first
   # `terraform apply` can race and create NATs that briefly can't egress.
@@ -185,11 +185,11 @@ resource "aws_subnet" "private" {
   cidr_block        = local.private_subnets[count.index]
   availability_zone = var.availability_zones[count.index]
 
-  tags = merge(var.tags, {
+  tags = {
     Name                              = "${local.name_prefix}-private-${count.index}"
     Tier                              = "private"
     "kubernetes.io/role/internal-elb" = "1"
-  })
+  }
 }
 
 # One route table per AZ. Each points to its own NAT (per-AZ mode) OR the
@@ -220,10 +220,10 @@ resource "aws_route_table" "private" {
     }
   }
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-private-rt-${count.index}"
     Tier = "private"
-  })
+  }
 }
 
 resource "aws_route_table_association" "private" {
@@ -244,10 +244,10 @@ resource "aws_subnet" "database" {
   cidr_block        = local.database_subnets[count.index]
   availability_zone = var.availability_zones[count.index]
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-database-${count.index}"
     Tier = "database"
-  })
+  }
 }
 
 # Database route table — DELIBERATELY NO 0.0.0.0/0 ROUTE.
@@ -257,10 +257,10 @@ resource "aws_subnet" "database" {
 resource "aws_route_table" "database" {
   vpc_id = aws_vpc.this.id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-database-rt"
     Tier = "database"
-  })
+  }
 }
 
 resource "aws_route_table_association" "database" {
@@ -275,9 +275,9 @@ resource "aws_db_subnet_group" "this" {
   name       = "${local.name_prefix}-db-subnet-group"
   subnet_ids = aws_subnet.database[*].id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-db-subnet-group"
-  })
+  }
 }
 
 # ── ElastiCache subnet group (consumed by Redis / Memcached modules) ──────
@@ -285,9 +285,9 @@ resource "aws_elasticache_subnet_group" "this" {
   name       = "${local.name_prefix}-cache-subnet-group"
   subnet_ids = aws_subnet.database[*].id
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-cache-subnet-group"
-  })
+  }
 }
 
 # Flow logs live in flow-logs.tf for clarity.

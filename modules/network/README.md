@@ -70,6 +70,31 @@ Subnets are auto-carved with `cidrsubnet(/16, 4, …)` — caller passes only a 
 
 Up to 4 AZs supported per tier without changing the math.
 
+## Tagging
+
+Two layers of tags are applied:
+
+**Provider-level (canonical schema)** — applied to every taggable resource via the AWS provider's `default_tags` block in `environments/*/providers.tf`. The module never sets these directly.
+
+| Tag | Purpose |
+|---|---|
+| `Project` | Group resources by project (cost reports, search) |
+| `Environment` | `dev` / `production` / `shared` (bootstrap) |
+| `ManagedBy` | Always `terraform` — distinguishes IaC-created from console-created |
+| `Owner` | Team or person to escalate to |
+| `CostCenter` | Bill-back / chargeback identifier (Finance) |
+| `DataClassification` | `public` / `internal` / `confidential` / `restricted` (InfoSec) |
+| `Repository` | Source repo URL — answers "where does this come from?" |
+
+**Module-level (resource-specific)** — set per resource in this module:
+
+| Tag | Where applied |
+|---|---|
+| `Name` | Every named resource |
+| `Tier` | `public` / `private` / `database` on subnets, route tables, NACLs |
+
+To add a tag everywhere, edit `local.common_tags` in the env's `main.tf`. To add a tag to specific resources, edit the module's per-resource `tags = { ... }` block. Don't pass tags through `var.tags` — the module reserves that variable for one-off overrides.
+
 ## File layout
 
 | File | Purpose |

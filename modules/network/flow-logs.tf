@@ -37,9 +37,9 @@ resource "aws_cloudwatch_log_group" "flow_logs" {
   name              = "/aws/vpc/${local.name_prefix}/flow-logs"
   retention_in_days = var.flow_logs_retention_days
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-flow-logs"
-  })
+  }
 }
 
 # IAM role used by the VPC Flow Logs service to write into CloudWatch.
@@ -57,7 +57,8 @@ resource "aws_iam_role" "flow_logs" {
     }]
   })
 
-  tags = var.tags
+  # IAM roles get default_tags from the provider; no resource-specific
+  # name/tier needed.
 }
 
 resource "aws_iam_role_policy" "flow_logs" {
@@ -94,9 +95,9 @@ resource "aws_s3_bucket" "flow_logs" {
   bucket        = "${local.name_prefix}-vpc-flow-logs-${data.aws_caller_identity.current.account_id}"
   force_destroy = false
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-vpc-flow-logs"
-  })
+  }
 }
 
 resource "aws_s3_bucket_ownership_controls" "flow_logs" {
@@ -259,7 +260,7 @@ resource "aws_flow_log" "this" {
   # service-linked role under the hood — no caller-managed role needed.
   iam_role_arn = local.fl_to_cloudwatch ? aws_iam_role.flow_logs[0].arn : null
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-flow-log"
-  })
+  }
 }

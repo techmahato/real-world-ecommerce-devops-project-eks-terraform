@@ -4,3 +4,9 @@
 aws_region        = "ap-south-1"
 project_name      = "ecommerce-eks"
 state_bucket_name = "ecommerce-eks-tfstate-CHANGE-ME-1717000000"
+
+# Tags (defaults are sane; override if needed)
+owner               = "platform-team"
+cost_center         = "eng-platform"
+data_classification = "confidential" # state files contain secrets
+repository          = "github.com/your-org/eks-terraform"

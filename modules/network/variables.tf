@@ -49,7 +49,13 @@ variable "availability_zones" {
 }
 
 variable "tags" {
-  description = "Common tags to apply to every resource created by this module."
+  description = <<-EOT
+    Reserved for compatibility. The canonical tag set (Project, Environment,
+    Owner, CostCenter, DataClassification, Repository, ManagedBy) is applied
+    by the AWS provider's `default_tags` block at the environment level.
+    The module only sets resource-specific tags (Name, Tier).
+    Pass an empty map `{}` unless you need to add a one-off tag override.
+  EOT
   type        = map(string)
   default     = {}
 }

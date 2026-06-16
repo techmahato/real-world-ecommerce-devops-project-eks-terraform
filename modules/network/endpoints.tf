@@ -75,9 +75,9 @@ resource "aws_security_group" "endpoints" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-vpc-endpoints"
-  })
+  }
 }
 
 # =============================================================================
@@ -108,9 +108,9 @@ resource "aws_vpc_endpoint" "s3" {
     [aws_route_table.database.id],
   )
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-s3-endpoint"
-  })
+  }
 }
 
 resource "aws_vpc_endpoint" "dynamodb" {
@@ -125,9 +125,9 @@ resource "aws_vpc_endpoint" "dynamodb" {
     [aws_route_table.database.id],
   )
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-dynamodb-endpoint"
-  })
+  }
 }
 
 # =============================================================================
@@ -148,7 +148,7 @@ resource "aws_vpc_endpoint" "interface" {
   security_group_ids  = [aws_security_group.endpoints[0].id]
   private_dns_enabled = true
 
-  tags = merge(var.tags, {
+  tags = {
     Name = "${local.name_prefix}-${replace(each.key, ".", "-")}-endpoint"
-  })
+  }
 }

@@ -1,0 +1,115 @@
+# =============================================================================
+#  oidc-github-role-existing-provider.yml
+#  -----------------------------------------------------------------------------
+#  Variant of `oidc-github-role.yml` for AWS accounts that ALREADY HAVE the
+#  GitHub OIDC provider registered (e.g. from a prior project). AWS only
+#  allows one OIDC provider per issuer URL per account, so you cannot create
+#  it twice — this template references the existing provider by ARN and
+#  creates only the assumable IAM role.
+#
+#  HOW TO FIND THE EXISTING PROVIDER ARN
+#  -------------------------------------
+#    aws iam list-open-id-connect-providers
+#
+#  USAGE
+#  -----
+#    aws cloudformation deploy \
+#      --stack-name github-oidc-tf-deployer-dev \
+#      --template-file docs/oidc-github-role-existing-provider.yml \
+#      --parameter-overrides \
+#          ExistingOidcProviderArn=arn:aws:iam::ACCOUNT:oidc-provider/token.actions.githubusercontent.com \
+#          RoleName=tf-deployer-dev \
+#          SubjectClaimFilters="repo:OWNER/REPO:environment:dev" \
+#          ManagedPolicyARNs=arn:aws:iam::aws:policy/AdministratorAccess \
+#      --capabilities CAPABILITY_NAMED_IAM
+# =============================================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Creates an IAM role assumable by GitHub Actions via an EXISTING OIDC
+  provider. Use this when AWS already has the GitHub OIDC provider set up.
+
+Parameters:
+
+  ExistingOidcProviderArn:
+    Type: String
+    Description: >
+      ARN of the existing GitHub Actions OIDC provider in this AWS account.
+      Run `aws iam list-open-id-connect-providers` to find it.
+    AllowedPattern: "^arn:aws:iam::\\d{12}:oidc-provider/token\\.actions\\.githubusercontent\\.com$"
+
+  AudienceList:
+    Type: CommaDelimitedList
+    Default: "sts.amazonaws.com"
+    Description: Audience claim AWS expects in the OIDC token. Leave default.
+
+  ManagedPolicyARNs:
+    Type: CommaDelimitedList
+    Default: "arn:aws:iam::aws:policy/AdministratorAccess"
+    Description: >
+      Managed-policy ARN(s) to attach. AdministratorAccess is fine for
+      learning; replace with a least-privilege policy for production.
+
+  SubjectClaimFilters:
+    Type: CommaDelimitedList
+    Default: "repo:OWNER_PLACEHOLDER/REPO_PLACEHOLDER:*"
+    Description: >
+      `sub` claim values allowed to assume this role.
+      Format: repo:<GithubOrg>/<RepoName>:<scope>
+      Example: repo:OWNER/REPO:environment:dev
+
+  RoleName:
+    Type: String
+    Default: "Terraform-deployer-role"
+    Description: Name of the IAM Role created by this stack.
+
+  MaxSessionDurationSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+    Description: Maximum session length, in seconds, for assumed-role credentials.
+
+
+Resources:
+
+  GitHubActionsAssumableRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      MaxSessionDuration: !Ref MaxSessionDurationSeconds
+      ManagedPolicyArns: !Ref ManagedPolicyARNs
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: GitHubActionsAssumeRoleWithWebIdentity
+            Effect: Allow
+            Principal:
+              Federated: !Ref ExistingOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: !Select [0, !Ref AudienceList]
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Ref SubjectClaimFilters
+      Tags:
+        - Key: Project
+          Value: real-world-ecommerce-devops-project-eks-terraform
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: GitHub-Actions-Deployer
+
+
+Outputs:
+
+  RoleArn:
+    Description: ARN of the IAM role for GitHub Actions to assume.
+    Value: !GetAtt GitHubActionsAssumableRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleArn"
+
+  RoleName:
+    Description: Name of the IAM role created by this stack.
+    Value: !Ref GitHubActionsAssumableRole
