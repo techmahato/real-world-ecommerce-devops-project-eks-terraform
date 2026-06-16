@@ -18,4 +18,4 @@ flow_logs_destination = "cloud-watch-logs"
 enable_bastion            = true
 bastion_instance_type     = "t3.micro"
 bastion_ssh_key_name      = "bastion-host"
-bastion_allowed_ssh_cidrs = "49.37.8.68/32"
+bastion_allowed_ssh_cidrs = ["49.37.8.68/32"]
