@@ -65,3 +65,28 @@ variable "repository" {
   type        = string
   default     = "github.com/your-org/eks-terraform"
 }
+
+# ── Bastion ─────────────────────────────────────────────────────────────────
+variable "enable_bastion" {
+  description = "Provision a bastion host. Off by default — flip on in tfvars when you need a jump box."
+  type        = bool
+  default     = false
+}
+
+variable "bastion_instance_type" {
+  description = "EC2 instance type for the bastion."
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "bastion_ssh_key_name" {
+  description = "EC2 key pair name for SSH access. Set to null for SSM-only mode."
+  type        = string
+  default     = null
+}
+
+variable "bastion_allowed_ssh_cidrs" {
+  description = "CIDRs allowed to SSH to the bastion. Empty list = SSM-only. 0.0.0.0/0 is rejected."
+  type        = list(string)
+  default     = []
+}
