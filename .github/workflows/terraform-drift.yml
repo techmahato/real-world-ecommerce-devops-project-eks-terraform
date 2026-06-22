@@ -1,0 +1,124 @@
+# =============================================================================
+#  Terraform Drift Detection
+#  ---------------------------------------------------------------------------
+#  Runs `terraform plan` against both environments on a schedule. If the plan
+#  is non-empty (i.e. real-world AWS state differs from what Terraform expects),
+#  the workflow fails. Failed scheduled workflows show up in:
+#    - GitHub Actions UI (red dot)
+#    - Email notifications to repo watchers
+#    - Optional Slack/Teams via the workflow_run hook
+#
+#  Why this matters for managed services:
+#    The #1 fear of an on-call engineer is "someone changed something in the
+#    AWS console and broke us." Drift detection catches that within a week
+#    instead of next time anyone runs `terraform apply` (which could be a
+#    month from now and would surprise everyone).
+#
+#  Triggers:
+#    - Scheduled: every Monday 06:00 UTC (set up via cron below)
+#    - workflow_dispatch: ad-hoc, useful when investigating an incident
+#
+#  Notes:
+#    - Read-only. Cannot accidentally apply anything.
+#    - Uses the same OIDC role as the plan workflow.
+#    - Plans both dev AND production sequentially in the same run.
+# =============================================================================
+
+name: Terraform Drift Detection
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC (= 11:30 IST). Pick a slot that doesn't
+    # collide with normal workday plans/applies.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Single env to check (default: both)"
+        required: false
+        default: "both"
+        type: choice
+        options: [both, dev, production]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: tf-drift
+  cancel-in-progress: false # let in-flight drift checks finish
+
+env:
+  TERRAFORM_VERSION: "1.11.4"
+
+jobs:
+  detect-drift:
+    name: Drift (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Use a matrix so each env runs as a separate job - failures are
+    # attributed to the right env in the UI.
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ github.event.inputs.environment == 'dev' && fromJson('["dev"]') || github.event.inputs.environment == 'production' && fromJson('["production"]') || fromJson('["dev","production"]') }}
+
+    environment: ${{ matrix.env }}
+
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.env }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}-drift-${{ matrix.env }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -input=false -no-color -backend-config=backend.hcl
+
+      - name: Terraform Plan (drift check)
+        id: plan
+        run: |
+          set +e
+          terraform plan \
+            -var-file=${{ matrix.env == 'production' && 'production.tfvars' || 'dev.tfvars' }} \
+            -no-color \
+            -detailed-exitcode \
+            -out=drift.tfplan
+          ec=$?
+          set -e
+          # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes detected
+          echo "exitcode=$ec" >> "$GITHUB_OUTPUT"
+          if [ "$ec" -eq 0 ]; then
+            echo "::notice::No drift detected in ${{ matrix.env }}"
+          elif [ "$ec" -eq 2 ]; then
+            echo "::warning::Drift detected in ${{ matrix.env }} - someone changed something outside Terraform"
+          else
+            echo "::error::Plan failed for ${{ matrix.env }} (exit $ec)"
+          fi
+          exit $ec
+
+      - name: Show plan summary on drift
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          terraform show -no-color drift.tfplan | head -200
+
+      - name: Fail the workflow if drift was detected
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          echo "Drift detected in ${{ matrix.env }} - investigate before next apply."
+          exit 1
